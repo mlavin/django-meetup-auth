@@ -1,4 +1,5 @@
 from django.http import HttpResponseNotFound, HttpResponseServerError
+from django.test import TestCase
 
 
 def test_404(request):

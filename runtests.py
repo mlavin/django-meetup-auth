@@ -23,13 +23,18 @@ if not settings.configured:
             'meetup_auth',
         ),
         ROOT_URLCONF='meetup_auth.tests.urls',
-        AUTHENTICATION_BACKENDS = (
+        AUTHENTICATION_BACKENDS=(
             'meetup_auth.backend.MeetupBackend',
             'django.contrib.auth.backends.ModelBackend',
         ),
-        SOCIAL_AUTH_IMPORT_BACKENDS = (
-            'meetup_auth.backend',
-        )
+        SOCIAL_AUTH_IMPORT_BACKENDS=(
+            'meetup_auth',
+        ),
+        SOCIAL_AUTH_ENABLED_BACKENDS=(
+            'meetup',
+        ),
+        MEETUP_CONSUMER_KEY='XXXXXXX',
+        MEETUP_CONSUMER_SECRET='XXXXXXX',
     )
 
 
