@@ -68,7 +68,7 @@ class OAuthTestCase(DjangoTestCase):
     """Validate OAuth calls."""
     
     def setUp(self):
-        self.oauth_request_patch = mock.patch('social_auth.backends.OAuthRequest')
+        self.oauth_request_patch = mock.patch('social_auth.backends.ConsumerBasedOAuth.oauth_request')
         self.oauth_token_patch = mock.patch('social_auth.backends.Token')
         self.oauth_request_mock = self.oauth_request_patch.start()
         self.oauth_token_mock = self.oauth_token_patch.start()
@@ -85,15 +85,18 @@ class OAuthTestCase(DjangoTestCase):
             request = mock.MagicMock()
             redirect = 'http://example.com'
             token = MeetupAuth(request, redirect).unauthorized_token()
-        mock_from_consumer_and_token = self.oauth_request_mock.from_consumer_and_token
-        call_args, call_kwargs = mock_from_consumer_and_token.call_args
-        self.assertEqual(call_kwargs['http_url'], 'https://api.meetup.com/oauth/request/')
-
-    def test_auth_url(self):
-        pass
+            self.oauth_request_mock.assert_called_with(token=None, url='https://api.meetup.com/oauth/request/')
 
     def test_access_token(self):
-        pass
+        """Check url for getting access token."""
+        from meetup_auth.backend import MeetupAuth
+        with mock.patch('social_auth.backends.urlopen') as urlopen:
+            urlopen.return_value = StringIO('FAKETOKEN')
+            request = mock.MagicMock()
+            redirect = 'http://example.com'
+            token = mock.MagicMock()
+            acces_token = MeetupAuth(request, redirect).access_token(token)
+            self.oauth_request_mock.assert_called_with(token, 'https://api.meetup.com/oauth/access/')
 
 
 class ContribAuthTestCase(DjangoTestCase):
