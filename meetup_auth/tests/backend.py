@@ -4,9 +4,12 @@ from urlparse import urlparse, parse_qs
 from django.contrib.auth.models import User
 from django.core.urlresolvers import reverse
 from django.test import TestCase as DjangoTestCase
+from django.utils import simplejson
+from django.utils.importlib import import_module
 
 import mock
-
+from social_auth.models import UserSocialAuth
+from social_auth.views import NEW_USER_REDIRECT, DEFAULT_REDIRECT, LOGIN_ERROR_URL
 
 class FakeToken(object):
     """
@@ -19,6 +22,26 @@ class FakeToken(object):
 
     def to_string(self):
         return 'FAKETOKEN'
+
+
+def meetup_user_response():
+    return {
+        "zip": "27511",
+        "lon": "-78.77999877929688",
+        "photo_url": "http://photos1.meetupstatic.com/photos/member/6/f/f/member_8675309.jpeg",
+        "link": "http://www.meetup.com/members/8675309",
+        "state": "NC",
+        "lang": "en_US",
+        "city": "Cary",
+        "country": "us",
+        "id": "8675309",
+        "visited": "2011-09-06 16:23:35 EDT",
+        "topics": [ ],
+        "joined": "Sat May 21 23:45:46 EDT 2011",
+        "bio": "",
+        "name": "Joe Smith",
+        "lat": "35.7599983215332"
+    }
 
 
 class AuthStartTestCase(DjangoTestCase):
@@ -55,13 +78,109 @@ class AuthStartTestCase(DjangoTestCase):
 class AuthCompleteTestCase(DjangoTestCase):
     """Complete login process from Meetup."""
 
+    def setUp(self):
+        self.complete_url = reverse('socialauth_complete', kwargs={'backend': 'meetup'})
+        self.access_token_patch = mock.patch('social_auth.backends.ConsumerBasedOAuth.access_token')
+        self.access_token_mock = self.access_token_patch.start()
+        self.access_token_mock.return_value = FakeToken()
+        self.oauth_token_patch = mock.patch('social_auth.backends.Token.from_string')
+        self.oauth_token_mock = self.oauth_token_patch.start()
+        self.oauth_token_mock.return_value = FakeToken()
+
+        # Ugly hack to make sessions work
+        # See https://code.djangoproject.com/ticket/10899
+        from django.conf import settings
+        engine = import_module(settings.SESSION_ENGINE)
+        store = engine.SessionStore()
+        store.save()  # we need to make load() work, or the cookie is worthless
+        self.client.cookies[settings.SESSION_COOKIE_NAME] = store.session_key
+        session = self.client.session
+        session['meetupunauthorized_token_name'] = 'FAKETOKEN'
+        session.save()
+
+    def tearDown(self):
+        self.access_token_patch.stop()
+        self.oauth_token_patch.stop()
+
+    def get_user_data(self):
+        """
+        Mimics data returned for a particular users data.
+        See http://www.meetup.com/meetup_api/docs/members/
+        """
+        user = meetup_user_response()
+        data = {
+            "results": [user, ],
+            "meta": {
+                "lon": "",
+                "count": 1,
+                "signed_url": "http://api.meetup.com/members?relation=self&order=name&offset=0&callback=jsonp1315340626452&format=json&page=20&sig_id=15710541&sig=7e75212aa3267174464194228791d7b0ce3851ca",
+                "link": "https://api.meetup.com/members",
+                "next": "",
+                "total_count": 1,
+                "url": "https://api.meetup.com/members?key=XXX&relation=self&order=name&offset=0&callback=jsonp1315340626452&format=json&page=20&sign=true",
+                "id": "",
+                "title": "Meetup Members",
+                "updated": "Thu Aug 11 21:29:17 EDT 2011",
+                "description": "API method for accessing members of Meetup Groups",
+                "method": "Members",
+                "lat": ""
+            }
+        }
+        return data
+
     def test_new_user(self):
         """Login for the first time via Meetup."""
-        pass
+        with mock.patch('social_auth.backends.urlopen') as urlopen:
+            user_data = self.get_user_data()
+            urlopen.return_value = StringIO(simplejson.dumps(user_data))
+            data = {'oauth_token': 'FAKEKEY'}
+            response = self.client.get(self.complete_url, data)
+            self.assertRedirects(response, NEW_USER_REDIRECT)
+
+    def test_new_user_name(self):
+        """Check the name set on the newly created user."""
+        with mock.patch('social_auth.backends.urlopen') as urlopen:
+            user_data = self.get_user_data()
+            urlopen.return_value = StringIO(simplejson.dumps(user_data))
+            data = {'oauth_token': 'FAKEKEY'}
+            self.client.get(self.complete_url, data)
+            new_user = User.objects.latest('id')
+            self.assertEqual(new_user.first_name, "Joe")
+            self.assertEqual(new_user.last_name, "Smith")
+
+    def test_single_name(self):
+        """Process a user with a single word name."""
+        with mock.patch('social_auth.backends.urlopen') as urlopen:
+            user_data = self.get_user_data()
+            user_data['results'][0]['name'] = 'Cher'
+            urlopen.return_value = StringIO(simplejson.dumps(user_data))
+            data = {'oauth_token': 'FAKEKEY'}
+            self.client.get(self.complete_url, data)
+            new_user = User.objects.latest('id')
+            self.assertEqual(new_user.first_name, "Cher")
+            self.assertEqual(new_user.last_name, "")
 
     def test_existing_user(self):
         """Login with an existing user via Meetup."""
-        pass
+        user = User.objects.create_user(username='test', password='test', email='')
+        social_user = UserSocialAuth.objects.create(
+            user=user, provider='meetup', uid='8675309'
+        )
+        with mock.patch('social_auth.backends.urlopen') as urlopen:
+            user_data = self.get_user_data()
+            urlopen.return_value = StringIO(simplejson.dumps(user_data))
+            data = {'oauth_token': 'FAKEKEY'}
+            response = self.client.get(self.complete_url, data)
+            self.assertRedirects(response, DEFAULT_REDIRECT)
+
+    def test_failed_authentication(self):
+        """Failed authentication. Bad data from Meetup."""
+        with mock.patch('social_auth.backends.urlopen') as urlopen:
+            # Blank response
+            urlopen.return_value = StringIO('')
+            data = {'oauth_token': 'FAKEKEY'}
+            response = self.client.get(self.complete_url, data)
+            self.assertRedirects(response, LOGIN_ERROR_URL)
 
 
 class OAuthTestCase(DjangoTestCase):
@@ -128,3 +247,22 @@ class ContribAuthTestCase(DjangoTestCase):
         authenticate = getattr(MeetupBackend, 'authenticate', None)
         self.assertTrue(authenticate, "Auth backend must define authenticate")
         self.assertTrue(callable(authenticate), "authenticate should be a callable")
+
+    def test_authenticate_existing_user(self):
+        """Authenticate an existing user."""
+        from meetup_auth.backend import MeetupBackend
+        user = User.objects.create_user(username='test', password='test', email='')
+        social_user = UserSocialAuth.objects.create(
+            user=user, provider='meetup', uid='8675309'
+        )
+        response = meetup_user_response()
+        result = MeetupBackend().authenticate(response=response, meetup=True)
+        self.assertEqual(result, user)
+
+    def test_authenticate_non_existing_user(self):
+        """Authenticate a new user creating that user."""
+        from meetup_auth.backend import MeetupBackend
+        response = meetup_user_response()
+        result = MeetupBackend().authenticate(response=response, meetup=True)
+        self.assertTrue(result)
+        self.assertTrue(result.is_new)
