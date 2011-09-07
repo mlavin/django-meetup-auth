@@ -8,7 +8,7 @@ which adds a backend for Meetup.com.
 Requirements
 -------------------------------
 
-- Django-Social-Auth >= 0.3.2
+- Django-Social-Auth >= 0.3.3
     - Django >= 1.2.5
     - Python-OAuth2 >= 1.5.167
     - Python-Openid >= 2.2

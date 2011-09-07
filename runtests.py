@@ -35,6 +35,7 @@ if not settings.configured:
         ),
         MEETUP_CONSUMER_KEY='XXXXXXX',
         MEETUP_CONSUMER_SECRET='XXXXXXX',
+        LOGIN_REDIRECT_URL='/default/',
         SOCIAL_AUTH_LOGIN_REDIRECT_URL='/default/',
         SOCIAL_AUTH_NEW_USER_REDIRECT_URL='/new/',
         LOGIN_ERROR_URL='/error/',

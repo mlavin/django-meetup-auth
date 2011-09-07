@@ -1,6 +1,7 @@
 from StringIO import StringIO
 from urlparse import urlparse, parse_qs
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.urlresolvers import reverse
 from django.test import TestCase as DjangoTestCase
@@ -9,7 +10,22 @@ from django.utils.importlib import import_module
 
 import mock
 from social_auth.models import UserSocialAuth
-from social_auth.views import NEW_USER_REDIRECT, DEFAULT_REDIRECT, LOGIN_ERROR_URL
+from social_auth import version as VERSION
+
+
+if VERSION[1] == 3:
+    DEFAULT_REDIRECT = getattr(settings, 'LOGIN_REDIRECT_URL', '')
+    LOGIN_ERROR_URL = getattr(settings, 'LOGIN_ERROR_URL', settings.LOGIN_URL)
+    NEW_USER_REDIRECT = DEFAULT_REDIRECT
+    BEGIN_URL_NAME = 'begin'
+    COMPLETE_URL_NAME = 'complete'
+else:
+    DEFAULT_REDIRECT = getattr(settings, 'SOCIAL_AUTH_LOGIN_REDIRECT_URL', '') or getattr(settings, 'LOGIN_REDIRECT_URL', '')
+    LOGIN_ERROR_URL = getattr(settings, 'LOGIN_ERROR_URL', settings.LOGIN_URL)
+    NEW_USER_REDIRECT = getattr(settings, 'SOCIAL_AUTH_NEW_USER_REDIRECT_URL', '')
+    BEGIN_URL_NAME = 'socialauth_begin'
+    COMPLETE_URL_NAME = 'socialauth_complete'
+
 
 class FakeToken(object):
     """
@@ -48,7 +64,7 @@ class AuthStartTestCase(DjangoTestCase):
     """Test login via Meetup."""
 
     def setUp(self):
-        self.login_url = reverse('socialauth_begin', kwargs={'backend': 'meetup'})
+        self.login_url = reverse(BEGIN_URL_NAME, kwargs={'backend': 'meetup'})
         self.request_token_patch = mock.patch('meetup_auth.backend.MeetupAuth.unauthorized_token')
         self.request_token_mock = self.request_token_patch.start()
         self.request_token_mock.return_value = FakeToken()
@@ -71,7 +87,7 @@ class AuthStartTestCase(DjangoTestCase):
         url = response['Location']
         scheme, netloc, path, params, query, fragment = urlparse(url)
         query_data = parse_qs(query)
-        complete_url = reverse('socialauth_complete', kwargs={'backend': 'meetup'})
+        complete_url = reverse(COMPLETE_URL_NAME, kwargs={'backend': 'meetup'})
         self.assertTrue(query_data['oauth_callback'][0].endswith(complete_url))
 
 
@@ -79,11 +95,11 @@ class AuthCompleteTestCase(DjangoTestCase):
     """Complete login process from Meetup."""
 
     def setUp(self):
-        self.complete_url = reverse('socialauth_complete', kwargs={'backend': 'meetup'})
+        self.complete_url = reverse(COMPLETE_URL_NAME, kwargs={'backend': 'meetup'})
         self.access_token_patch = mock.patch('social_auth.backends.ConsumerBasedOAuth.access_token')
         self.access_token_mock = self.access_token_patch.start()
         self.access_token_mock.return_value = FakeToken()
-        self.oauth_token_patch = mock.patch('social_auth.backends.Token.from_string')
+        self.oauth_token_patch = mock.patch('oauth2.Token.from_string')
         self.oauth_token_mock = self.oauth_token_patch.start()
         self.oauth_token_mock.return_value = FakeToken()
 
@@ -130,18 +146,18 @@ class AuthCompleteTestCase(DjangoTestCase):
 
     def test_new_user(self):
         """Login for the first time via Meetup."""
-        with mock.patch('social_auth.backends.urlopen') as urlopen:
+        with mock.patch('social_auth.backends.ConsumerBasedOAuth.fetch_response') as urlopen:
             user_data = self.get_user_data()
-            urlopen.return_value = StringIO(simplejson.dumps(user_data))
+            urlopen.return_value = simplejson.dumps(user_data)
             data = {'oauth_token': 'FAKEKEY'}
             response = self.client.get(self.complete_url, data)
             self.assertRedirects(response, NEW_USER_REDIRECT)
 
     def test_new_user_name(self):
         """Check the name set on the newly created user."""
-        with mock.patch('social_auth.backends.urlopen') as urlopen:
+        with mock.patch('social_auth.backends.ConsumerBasedOAuth.fetch_response') as urlopen:
             user_data = self.get_user_data()
-            urlopen.return_value = StringIO(simplejson.dumps(user_data))
+            urlopen.return_value = simplejson.dumps(user_data)
             data = {'oauth_token': 'FAKEKEY'}
             self.client.get(self.complete_url, data)
             new_user = User.objects.latest('id')
@@ -150,10 +166,10 @@ class AuthCompleteTestCase(DjangoTestCase):
 
     def test_single_name(self):
         """Process a user with a single word name."""
-        with mock.patch('social_auth.backends.urlopen') as urlopen:
+        with mock.patch('social_auth.backends.ConsumerBasedOAuth.fetch_response') as urlopen:
             user_data = self.get_user_data()
             user_data['results'][0]['name'] = 'Cher'
-            urlopen.return_value = StringIO(simplejson.dumps(user_data))
+            urlopen.return_value = simplejson.dumps(user_data)
             data = {'oauth_token': 'FAKEKEY'}
             self.client.get(self.complete_url, data)
             new_user = User.objects.latest('id')
@@ -166,18 +182,18 @@ class AuthCompleteTestCase(DjangoTestCase):
         social_user = UserSocialAuth.objects.create(
             user=user, provider='meetup', uid='8675309'
         )
-        with mock.patch('social_auth.backends.urlopen') as urlopen:
+        with mock.patch('social_auth.backends.ConsumerBasedOAuth.fetch_response') as urlopen:
             user_data = self.get_user_data()
-            urlopen.return_value = StringIO(simplejson.dumps(user_data))
+            urlopen.return_value = simplejson.dumps(user_data)
             data = {'oauth_token': 'FAKEKEY'}
             response = self.client.get(self.complete_url, data)
             self.assertRedirects(response, DEFAULT_REDIRECT)
 
     def test_failed_authentication(self):
         """Failed authentication. Bad data from Meetup."""
-        with mock.patch('social_auth.backends.urlopen') as urlopen:
+        with mock.patch('social_auth.backends.ConsumerBasedOAuth.fetch_response') as urlopen:
             # Blank response
-            urlopen.return_value = StringIO('')
+            urlopen.return_value = ''
             data = {'oauth_token': 'FAKEKEY'}
             response = self.client.get(self.complete_url, data)
             self.assertRedirects(response, LOGIN_ERROR_URL)
@@ -188,7 +204,7 @@ class OAuthTestCase(DjangoTestCase):
     
     def setUp(self):
         self.oauth_request_patch = mock.patch('social_auth.backends.ConsumerBasedOAuth.oauth_request')
-        self.oauth_token_patch = mock.patch('social_auth.backends.Token')
+        self.oauth_token_patch = mock.patch('oauth2.Token.from_string')
         self.oauth_request_mock = self.oauth_request_patch.start()
         self.oauth_token_mock = self.oauth_token_patch.start()
 
@@ -199,8 +215,8 @@ class OAuthTestCase(DjangoTestCase):
     def test_request_token(self):
         """Check url for getting request (unauthorized) token."""
         from meetup_auth.backend import MeetupAuth
-        with mock.patch('social_auth.backends.urlopen') as urlopen:
-            urlopen.return_value = StringIO('FAKETOKEN')
+        with mock.patch('social_auth.backends.ConsumerBasedOAuth.fetch_response') as urlopen:
+            urlopen.return_value = 'FAKETOKEN'
             request = mock.MagicMock()
             redirect = 'http://example.com'
             token = MeetupAuth(request, redirect).unauthorized_token()
@@ -209,8 +225,8 @@ class OAuthTestCase(DjangoTestCase):
     def test_access_token(self):
         """Check url for getting access token."""
         from meetup_auth.backend import MeetupAuth
-        with mock.patch('social_auth.backends.urlopen') as urlopen:
-            urlopen.return_value = StringIO('FAKETOKEN')
+        with mock.patch('social_auth.backends.ConsumerBasedOAuth.fetch_response') as urlopen:
+            urlopen.return_value = 'FAKETOKEN'
             request = mock.MagicMock()
             redirect = 'http://example.com'
             token = mock.MagicMock()
@@ -265,4 +281,5 @@ class ContribAuthTestCase(DjangoTestCase):
         response = meetup_user_response()
         result = MeetupBackend().authenticate(response=response, meetup=True)
         self.assertTrue(result)
-        self.assertTrue(result.is_new)
+        if hasattr(result, 'is_new'):
+            self.assertTrue(result.is_new)
