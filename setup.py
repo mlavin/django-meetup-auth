@@ -22,7 +22,7 @@ setup(
     url='https://github.com/mlavin/django-meetup-auth',
     license='BSD',
     description=u' '.join(__import__('meetup_auth').__doc__.splitlines()).strip(),
-    install_requires=['django-social-auth>=0.3.2', ],
+    install_requires=['django-social-auth>=0.3.3', ],
     classifiers=[
         'Topic :: Internet :: WWW/HTTP :: Dynamic Content',
         'Intended Audience :: Developers',
