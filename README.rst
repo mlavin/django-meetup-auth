@@ -31,7 +31,7 @@ To install django-meetup-auth via pip::
 
     pip install django-meetup-auth
 
-Or you can from the latest version from Github manuall::
+Or you can from the latest version from Github manually::
 
     git clone git://github.com/mlavin/django-meetup-auth.git
     cd django-meetup-auth
