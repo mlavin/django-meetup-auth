@@ -18,7 +18,7 @@ from social_auth.backends import BaseOAuth2, OAuthBackend, USERNAME
 MEETUP_SERVER = 'secure.meetup.com'
 MEETUP_ACCESS_TOKEN_URL = 'https://%s/oauth2/access' % MEETUP_SERVER
 MEETUP_AUTHORIZATION_URL = 'https://%s/oauth2/authorize' % MEETUP_SERVER
-MEETUP_CHECK_AUTH = 'https://api.meetup.com/members.json/?relation=self'
+MEETUP_CHECK_AUTH = 'https://api.meetup.com/members.json/'
 
 
 class MeetupBackend(OAuthBackend):
