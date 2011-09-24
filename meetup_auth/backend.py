@@ -57,13 +57,13 @@ class MeetupAuth(BaseOAuth2):
     def user_data(self, access_token):
         """Return user data provided"""
         params = {
-            'oauth_token': access_token,
+            'access_token': access_token,
             'relation': 'self'
         }
         url = MEETUP_CHECK_AUTH + '?' + urlencode(params)
         try:
             return simplejson.load(urlopen(url))['results'][0]
-        except (ValueError, KeyError, IndexError,):
+        except (ValueError, KeyError, IndexError, ):
             return None
 
 
