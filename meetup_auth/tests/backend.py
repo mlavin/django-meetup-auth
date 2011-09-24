@@ -27,19 +27,6 @@ else:
     COMPLETE_URL_NAME = 'socialauth_complete'
 
 
-class FakeToken(object):
-    """
-    Can use Mock here because it will be saved in the session and Mock
-    objects cannot be pickled.
-    """
-    key = 'FAKEKEY'
-    secret = 'FAKESECRET'
-    verifier = ''
-
-    def to_string(self):
-        return 'FAKETOKEN'
-
-
 def meetup_user_response():
     return {
         "zip": "27511",
@@ -65,12 +52,6 @@ class AuthStartTestCase(DjangoTestCase):
 
     def setUp(self):
         self.login_url = reverse(BEGIN_URL_NAME, kwargs={'backend': 'meetup'})
-        self.request_token_patch = mock.patch('meetup_auth.backend.MeetupAuth.unauthorized_token')
-        self.request_token_mock = self.request_token_patch.start()
-        self.request_token_mock.return_value = FakeToken()
-
-    def tearDown(self):
-        self.request_token_patch.stop()
 
     def test_meetup_redirect_url(self):
         """Check redirect to Meetup."""
@@ -79,7 +60,7 @@ class AuthStartTestCase(DjangoTestCase):
         self.assertTrue(response.status_code, 302)
         url = response['Location']
         scheme, netloc, path, params, query, fragment = urlparse(url)
-        self.assertEqual('%s://%s%s' % (scheme, netloc, path), 'https://www.meetup.com/authenticate/')
+        self.assertEqual('%s://%s%s' % (scheme, netloc, path), 'https://secure.meetup.com/oauth2/authorize')
 
     def test_callback_url(self):
         """Check redirect callback url."""
@@ -88,7 +69,7 @@ class AuthStartTestCase(DjangoTestCase):
         scheme, netloc, path, params, query, fragment = urlparse(url)
         query_data = parse_qs(query)
         complete_url = reverse(COMPLETE_URL_NAME, kwargs={'backend': 'meetup'})
-        self.assertTrue(query_data['oauth_callback'][0].endswith(complete_url))
+        self.assertTrue(query_data['redirect_uri'][0].endswith(complete_url))
 
 
 class AuthCompleteTestCase(DjangoTestCase):
@@ -96,27 +77,20 @@ class AuthCompleteTestCase(DjangoTestCase):
 
     def setUp(self):
         self.complete_url = reverse(COMPLETE_URL_NAME, kwargs={'backend': 'meetup'})
-        self.access_token_patch = mock.patch('social_auth.backends.ConsumerBasedOAuth.access_token')
-        self.access_token_mock = self.access_token_patch.start()
-        self.access_token_mock.return_value = FakeToken()
-        self.oauth_token_patch = mock.patch('oauth2.Token.from_string')
-        self.oauth_token_mock = self.oauth_token_patch.start()
-        self.oauth_token_mock.return_value = FakeToken()
-
-        # Ugly hack to make sessions work
-        # See https://code.djangoproject.com/ticket/10899
-        from django.conf import settings
-        engine = import_module(settings.SESSION_ENGINE)
-        store = engine.SessionStore()
-        store.save()  # we need to make load() work, or the cookie is worthless
-        self.client.cookies[settings.SESSION_COOKIE_NAME] = store.session_key
-        session = self.client.session
-        session['meetupunauthorized_token_name'] = 'FAKETOKEN'
-        session.save()
+        self.urlopen_patch = mock.patch('social_auth.backends.urlopen')
+        self.urlopen_mock = self.urlopen_patch.start()
+        token_data = self.get_access_token()
+        self.urlopen_mock.return_value = StringIO(simplejson.dumps(token_data))
 
     def tearDown(self):
-        self.access_token_patch.stop()
-        self.oauth_token_patch.stop()
+        self.urlopen_patch.stop()
+
+    def get_access_token(self):
+        return {
+          "access_token": "ACCESS_TOKEN_TO_STORE",
+          "expires_in": 3600,
+          "refresh_token": "TOKEN_USED_TO_REFRESH_AUTHORIZATION"
+        }
 
     def get_user_data(self):
         """
@@ -146,19 +120,19 @@ class AuthCompleteTestCase(DjangoTestCase):
 
     def test_new_user(self):
         """Login for the first time via Meetup."""
-        with mock.patch('social_auth.backends.ConsumerBasedOAuth.fetch_response') as urlopen:
+        with mock.patch('meetup_auth.backend.urlopen') as urlopen:
             user_data = self.get_user_data()
-            urlopen.return_value = simplejson.dumps(user_data)
-            data = {'oauth_token': 'FAKEKEY'}
+            urlopen.return_value = StringIO(simplejson.dumps(user_data))
+            data = {'code': 'FAKEKEY'}
             response = self.client.get(self.complete_url, data)
             self.assertRedirects(response, NEW_USER_REDIRECT)
 
     def test_new_user_name(self):
         """Check the name set on the newly created user."""
-        with mock.patch('social_auth.backends.ConsumerBasedOAuth.fetch_response') as urlopen:
+        with mock.patch('meetup_auth.backend.urlopen') as urlopen:
             user_data = self.get_user_data()
-            urlopen.return_value = simplejson.dumps(user_data)
-            data = {'oauth_token': 'FAKEKEY'}
+            urlopen.return_value = StringIO(simplejson.dumps(user_data))
+            data = {'code': 'FAKEKEY'}
             self.client.get(self.complete_url, data)
             new_user = User.objects.latest('id')
             self.assertEqual(new_user.first_name, "Joe")
@@ -166,11 +140,11 @@ class AuthCompleteTestCase(DjangoTestCase):
 
     def test_single_name(self):
         """Process a user with a single word name."""
-        with mock.patch('social_auth.backends.ConsumerBasedOAuth.fetch_response') as urlopen:
+        with mock.patch('meetup_auth.backend.urlopen') as urlopen:
             user_data = self.get_user_data()
             user_data['results'][0]['name'] = 'Cher'
-            urlopen.return_value = simplejson.dumps(user_data)
-            data = {'oauth_token': 'FAKEKEY'}
+            urlopen.return_value = StringIO(simplejson.dumps(user_data))
+            data = {'code': 'FAKEKEY'}
             self.client.get(self.complete_url, data)
             new_user = User.objects.latest('id')
             self.assertEqual(new_user.first_name, "Cher")
@@ -182,56 +156,22 @@ class AuthCompleteTestCase(DjangoTestCase):
         social_user = UserSocialAuth.objects.create(
             user=user, provider='meetup', uid='8675309'
         )
-        with mock.patch('social_auth.backends.ConsumerBasedOAuth.fetch_response') as urlopen:
+        with mock.patch('meetup_auth.backend.urlopen') as urlopen:
             user_data = self.get_user_data()
-            urlopen.return_value = simplejson.dumps(user_data)
-            data = {'oauth_token': 'FAKEKEY'}
+            urlopen.return_value = StringIO(simplejson.dumps(user_data))
+            data = {'code': 'FAKEKEY'}
             response = self.client.get(self.complete_url, data)
             self.assertRedirects(response, DEFAULT_REDIRECT)
 
     def test_failed_authentication(self):
         """Failed authentication. Bad data from Meetup."""
-        with mock.patch('social_auth.backends.ConsumerBasedOAuth.fetch_response') as urlopen:
-            # Blank response
-            urlopen.return_value = ''
-            data = {'oauth_token': 'FAKEKEY'}
-            response = self.client.get(self.complete_url, data)
-            self.assertRedirects(response, LOGIN_ERROR_URL)
-
-
-class OAuthTestCase(DjangoTestCase):
-    """Validate OAuth calls."""
-    
-    def setUp(self):
-        self.oauth_request_patch = mock.patch('social_auth.backends.ConsumerBasedOAuth.oauth_request')
-        self.oauth_token_patch = mock.patch('oauth2.Token.from_string')
-        self.oauth_request_mock = self.oauth_request_patch.start()
-        self.oauth_token_mock = self.oauth_token_patch.start()
-
-    def tearDown(self):
-        self.oauth_request_patch.stop()
-        self.oauth_token_patch.start()
-
-    def test_request_token(self):
-        """Check url for getting request (unauthorized) token."""
-        from meetup_auth.backend import MeetupAuth
-        with mock.patch('social_auth.backends.ConsumerBasedOAuth.fetch_response') as urlopen:
-            urlopen.return_value = 'FAKETOKEN'
-            request = mock.MagicMock()
-            redirect = 'http://example.com'
-            token = MeetupAuth(request, redirect).unauthorized_token()
-            self.oauth_request_mock.assert_called_with(token=None, url='https://api.meetup.com/oauth/request/')
-
-    def test_access_token(self):
-        """Check url for getting access token."""
-        from meetup_auth.backend import MeetupAuth
-        with mock.patch('social_auth.backends.ConsumerBasedOAuth.fetch_response') as urlopen:
-            urlopen.return_value = 'FAKETOKEN'
-            request = mock.MagicMock()
-            redirect = 'http://example.com'
-            token = mock.MagicMock()
-            acces_token = MeetupAuth(request, redirect).access_token(token)
-            self.oauth_request_mock.assert_called_with(token, 'https://api.meetup.com/oauth/access/')
+        error_data = {
+            'error': 'invalid_request'
+        }
+        self.urlopen_mock.return_value = StringIO(simplejson.dumps(error_data))
+        data = {'code': 'FAKEKEY'}
+        response = self.client.get(self.complete_url, data)
+        self.assertRedirects(response, LOGIN_ERROR_URL)
 
 
 class ContribAuthTestCase(DjangoTestCase):
