@@ -23,6 +23,12 @@ Meetup.com. These should be put into your settings file using the settings::
     MEETUP_CONSUMER_KEY = '' # Your consumer key
     MEETUP_CONSUMER_SECRET = '' # Your consumer secret
 
+.. versionadded:: 0.2
+
+Django-Meetup-Auth uses the OAuth 2.0 endpoints which means you must include a
+Redirect URI when registering your applicaion with Meetup.com. For more detail
+please see the `Meetup API documentation <http://www.meetup.com/meetup_api/auth/#oauth2server-auth-success>`_.
+
 
 Installation
 -------------------------------
@@ -31,7 +37,7 @@ To install django-meetup-auth via pip::
 
     pip install django-meetup-auth
 
-Or you can from the latest version from Github manuall::
+Or you can from the latest version from Github manually::
 
     git clone git://github.com/mlavin/django-meetup-auth.git
     cd django-meetup-auth

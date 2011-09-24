@@ -1,5 +1,5 @@
 """
-Meetup OAuth support for Django-Social-Auth.
+Meetup OAuth2 support for Django-Social-Auth.
 
 This adds support for Meetup OAuth service. An application must
 be registered first on Meetup.com and the settings MEETUP_CONSUMER_KEY
@@ -7,18 +7,18 @@ and MEETUP_CONSUMER_SECRET must be defined with they corresponding
 values.
 """
 
+from urllib import urlencode
+from urllib2 import urlopen
+
 from django.utils import simplejson
 
-from social_auth.backends import ConsumerBasedOAuth, OAuthBackend, USERNAME
+from social_auth.backends import BaseOAuth2, OAuthBackend, USERNAME
 
 
-MEETUP_SERVER = 'api.meetup.com'
-MEETUP_REQUEST_TOKEN_URL = 'https://%s/oauth/request/' % MEETUP_SERVER
-MEETUP_ACCESS_TOKEN_URL = 'https://%s/oauth/access/' % MEETUP_SERVER
-# Note: oauth/authorize forces the user to authorize every time.
-#       oauth/authenticate uses their previous selection, barring revocation.
-MEETUP_AUTHORIZATION_URL = 'https://www.meetup.com/authenticate/'
-MEETUP_CHECK_AUTH = 'https://%s/members.json/?relation=self' % MEETUP_SERVER
+MEETUP_SERVER = 'secure.meetup.com'
+MEETUP_ACCESS_TOKEN_URL = 'https://%s/oauth2/access' % MEETUP_SERVER
+MEETUP_AUTHORIZATION_URL = 'https://%s/oauth2/authorize' % MEETUP_SERVER
+MEETUP_CHECK_AUTH = 'https://api.meetup.com/members.json/'
 
 
 class MeetupBackend(OAuthBackend):
@@ -45,10 +45,9 @@ class MeetupBackend(OAuthBackend):
         return data
 
 
-class MeetupAuth(ConsumerBasedOAuth):
+class MeetupAuth(BaseOAuth2):
     """Meetup OAuth authentication mechanism"""
     AUTHORIZATION_URL = MEETUP_AUTHORIZATION_URL
-    REQUEST_TOKEN_URL = MEETUP_REQUEST_TOKEN_URL
     ACCESS_TOKEN_URL = MEETUP_ACCESS_TOKEN_URL
     SERVER_URL = MEETUP_SERVER
     AUTH_BACKEND = MeetupBackend
@@ -57,13 +56,14 @@ class MeetupAuth(ConsumerBasedOAuth):
 
     def user_data(self, access_token):
         """Return user data provided"""
-        request = self.oauth_request(access_token, MEETUP_CHECK_AUTH, 
-            extra_params={'fields': 'email'}
-        )
-        json = self.fetch_response(request)
+        params = {
+            'access_token': access_token,
+            'relation': 'self'
+        }
+        url = MEETUP_CHECK_AUTH + '?' + urlencode(params)
         try:
-            return simplejson.loads(json)['results'][0]
-        except (ValueError, KeyError, IndexError,):
+            return simplejson.load(urlopen(url))['results'][0]
+        except (ValueError, KeyError, IndexError, ):
             return None
 
 
