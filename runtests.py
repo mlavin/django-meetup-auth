@@ -27,6 +27,7 @@ if not settings.configured:
             'meetup_auth.backend.MeetupBackend',
             'django.contrib.auth.backends.ModelBackend',
         ),
+        SITE_ID=1,
         SOCIAL_AUTH_IMPORT_BACKENDS=(
             'meetup_auth',
         ),
