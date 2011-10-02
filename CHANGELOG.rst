@@ -4,6 +4,12 @@ Django-Meetup-Auth Changes
 History of releases and changes to the Django-Meetup-Auth project.
 
 
+v0.2.1
+-------------------------------
+
+Fix get_user_details to return blank username
+
+
 v0.2.0
 -------------------------------
 
