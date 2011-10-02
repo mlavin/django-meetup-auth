@@ -36,7 +36,7 @@ class MeetupBackend(OAuthBackend):
             first_name = full_name
             last_name = ''
         data = {
-            USERNAME: response['id'],
+            USERNAME: '',
             'email': response.get('email', ''),  # requested but not always supplied
             'fullname': full_name,
             'first_name': first_name,
