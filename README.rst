@@ -5,6 +5,14 @@ Django-Meetup-Auth is an extension to `Django-Social-Auth <https://github.com/om
 which adds a backend for Meetup.com.
 
 
+Development Status
+-------------------------------
+
+The development of this backend has stopped and it is not expected to be maintained
+in the future. If you are interested in picking up the development of this project
+please let me know.
+
+
 Requirements
 -------------------------------
 
